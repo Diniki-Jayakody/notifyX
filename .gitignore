@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+
+# Build outputs
+dist/
+build/
+
+# Environment files (NEVER commit these)
+.env
+.env.local
+.env.production
+
+# Database
+*.db
+*.sqlite
+
+# IDE
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker volumes (local data)
+postgres_data/
+redis_data/
+
+# Test coverage
+coverage/

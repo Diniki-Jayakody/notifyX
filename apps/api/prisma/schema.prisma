@@ -1,0 +1,220 @@
+// apps/api/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════
+// Users
+// ═══════════════════════════════════════════
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  username  String   @unique
+  role      UserRole @default(USER)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  events        Event[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SERVICE_ACCOUNT
+
+  @@map("user_role")
+}
+
+// ═══════════════════════════════════════════
+// Events
+// ═══════════════════════════════════════════
+model Event {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid @map("user_id")
+  type        EventType
+  payload     Json
+  ipAddress   String?   @map("ip_address")
+  userAgent   String?   @map("user_agent")
+  severity    Severity  @default(LOW)
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  auditLog      AuditLog?
+  outboxEvents  OutboxEvent[]
+  notifications Notification[]
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([severity])
+  @@index([userId, createdAt])
+  @@map("events")
+}
+
+enum EventType {
+  LOGIN
+  LOGOUT
+  FAILED_LOGIN
+  PASSWORD_CHANGE
+  PAYMENT
+  DATA_EXPORT
+  ADMIN_ACTION
+  API_KEY_CREATED
+  SUSPICIOUS_ACTIVITY
+
+  @@map("event_type")
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@map("severity")
+}
+
+// ═══════════════════════════════════════════
+// AuditLog
+// ═══════════════════════════════════════════
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  eventId     String   @unique @db.Uuid @map("event_id")
+  userId      String   @db.Uuid @map("user_id")
+  action      String
+  context     Json
+  checksum    String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  event     Event              @relation(fields: [eventId], references: [id])
+  user      User               @relation(fields: [userId], references: [id])
+  embedding AuditLogEmbedding?
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ═══════════════════════════════════════════
+// AuditLogEmbedding
+// Separate table for vector embeddings.
+// Uses Unsupported("vector(384)") because Prisma does not natively
+// understand pgvector types — we use raw SQL for insert and search.
+// The relation is: one AuditLog has one AuditLogEmbedding.
+// ═══════════════════════════════════════════
+model AuditLogEmbedding {
+  id         String   @id @default(uuid()) @db.Uuid
+  auditLogId String   @unique @db.Uuid @map("audit_log_id")
+  // @unique enforces one-to-one at the database level
+
+  // embedding  Unsupported("vector(384)")
+  model      String   @default("all-MiniLM-L6-v2")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  auditLog   AuditLog @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+  // One embedding belongs to one audit log
+  // onDelete: Cascade — if the audit log is deleted, the embedding is deleted too
+
+  @@map("audit_log_embeddings")
+}
+
+// ═══════════════════════════════════════════
+// OutboxEvent
+// ═══════════════════════════════════════════
+model OutboxEvent {
+  id           String       @id @default(uuid()) @db.Uuid
+  eventId      String       @db.Uuid @map("event_id")
+  type         String
+  payload      Json
+  status       OutboxStatus @default(PENDING)
+  attempts     Int          @default(0)
+  maxAttempts  Int          @default(3) @map("max_attempts")
+  processedAt  DateTime?    @map("processed_at")
+  failedAt     DateTime?    @map("failed_at")
+  error        String?
+  scheduledFor DateTime     @default(now()) @map("scheduled_for")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  event Event @relation(fields: [eventId], references: [id])
+
+  @@index([status, scheduledFor])
+  @@index([eventId])
+  @@map("outbox_events")
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  DEAD_LETTERED
+
+  @@map("outbox_status")
+}
+
+// ═══════════════════════════════════════════
+// Notification
+// ═══════════════════════════════════════════
+model Notification {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @db.Uuid @map("user_id")
+  eventId   String              @db.Uuid @map("event_id")
+  type      NotificationType
+  channel   NotificationChannel
+  title     String
+  body      String              @db.Text
+  status    NotificationStatus  @default(PENDING)
+  sentAt    DateTime?           @map("sent_at")
+  failedAt  DateTime?           @map("failed_at")
+  error     String?
+  metadata  Json?
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  event Event @relation(fields: [eventId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([eventId])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  SECURITY_ALERT
+  ACCOUNT_ACTIVITY
+  SYSTEM_NOTICE
+  ANOMALY_DETECTED
+
+  @@map("notification_type")
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WEBHOOK
+  IN_APP
+
+  @@map("notification_channel")
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+
+  @@map("notification_status")
+}

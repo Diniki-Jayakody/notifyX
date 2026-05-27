@@ -56,6 +56,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data  # Named volume: data persists across restarts
+      - ./postgres-init:/docker-entrypoint-initdb.d  # ← ADD THIS LINE
     ports:
       - "5432:5432"               # Expose for local tools (TablePlus, pgAdmin, etc.)
     networks:
